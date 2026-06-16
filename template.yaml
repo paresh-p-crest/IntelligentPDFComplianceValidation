@@ -302,6 +302,11 @@ Resources:
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref ComplianceJobsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - states:DescribeExecution
+              Resource: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:${ComplianceStateMachine.Name}:*'
       Events:
         GetJobStatus:
           Type: HttpApi

@@ -88,11 +88,17 @@ def handler(event, context):
             error_message = f"Textract job ended with status {status}"
             table.update_item(
                 Key={"s3Key": s3_key},
-                UpdateExpression="SET #status = :status, errorMessage = :error",
+                UpdateExpression="SET #status = :status, errorMessage = :error, errorDetails = :details",
                 ExpressionAttributeNames={"#status": "status"},
                 ExpressionAttributeValues={
                     ":status": "FAILED",
-                    ":error": error_message,
+                    ":error": "Amazon Textract did not finish analyzing this PDF.",
+                    ":details": {
+                        "stage": "Amazon Textract",
+                        "errorType": "TextractJobFailed",
+                        "errorMessage": error_message,
+                        "jobId": job_id,
+                    },
                 },
             )
             sfn.send_task_failure(

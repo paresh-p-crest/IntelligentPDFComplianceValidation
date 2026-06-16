@@ -2,6 +2,7 @@
 
 import json
 import logging
+import traceback
 from datetime import datetime, timezone
 
 import boto3
@@ -57,6 +58,30 @@ def _update_job(table, s3_key: str, updates: dict) -> None:
         ExpressionAttributeNames={f"#{key}": key for key in dynamo_updates},
         ExpressionAttributeValues={
             f":{key}": value for key, value in dynamo_updates.items()
+        },
+    )
+
+
+def _failure_update(
+    table,
+    s3_key: str,
+    *,
+    job_id: str,
+    bucket: str,
+    friendly_message: str,
+    error_details: dict,
+) -> None:
+    _update_job(
+        table,
+        s3_key,
+        {
+            "jobId": job_id,
+            "bucket": bucket,
+            "status": "FAILED",
+            "errorMessage": friendly_message,
+            "errorDetails": error_details,
+            "findings": [],
+            "findingCount": 0,
         },
     )
 
@@ -120,16 +145,17 @@ def handler(event, context):
         raise ValueError(f"No S3 key in Textract message for JobId={job_id}")
 
     if status != "SUCCEEDED":
-        _update_job(
+        _failure_update(
             table,
             s3_key,
-            {
-                "jobId": job_id,
-                "bucket": bucket,
-                "status": "FAILED",
+            job_id=job_id,
+            bucket=bucket,
+            friendly_message="Amazon Textract did not finish analyzing this PDF.",
+            error_details={
+                "stage": "Amazon Textract",
+                "errorType": "TextractStatusError",
                 "errorMessage": f"Textract job ended with status {status}",
-                "findings": [],
-                "findingCount": 0,
+                "jobId": job_id,
             },
         )
         return {"status": "failed", "jobId": job_id, "s3Key": s3_key}
@@ -140,7 +166,7 @@ def handler(event, context):
         key_value_pairs = extract_key_value_pairs(blocks)
         query_answers = enrich_query_answers(extract_query_answers(blocks))
         settings_table = get_required_env("SETTINGS_TABLE_NAME")
-        settings = load_settings(settings_table, enrich_aws=False)
+        settings = load_settings(settings_table)
         findings = run_phase1_rules(
             pages,
             key_value_pairs,
@@ -182,18 +208,37 @@ def handler(event, context):
             "s3Key": s3_key,
             "findingCount": len(findings),
         }
-    except ClientError:
+    except ClientError as exc:
         logger.exception("Failed to process Textract results for JobId=%s", job_id)
-        _update_job(
+        _failure_update(
             table,
             s3_key,
-            {
+            job_id=job_id,
+            bucket=bucket,
+            friendly_message="Could not download or parse Textract results for this document.",
+            error_details={
+                "stage": "Amazon Textract",
+                "errorType": exc.__class__.__name__,
+                "errorMessage": str(exc),
+                "stackTrace": traceback.format_exc(),
                 "jobId": job_id,
-                "bucket": bucket,
-                "status": "FAILED",
-                "errorMessage": "Failed to fetch or parse Textract results",
-                "findings": [],
-                "findingCount": 0,
+            },
+        )
+        raise
+    except Exception as exc:
+        logger.exception("Compliance validation failed for JobId=%s", job_id)
+        _failure_update(
+            table,
+            s3_key,
+            job_id=job_id,
+            bucket=bucket,
+            friendly_message="Compliance validation failed while applying audit rules.",
+            error_details={
+                "stage": "RuleEngine",
+                "errorType": exc.__class__.__name__,
+                "errorMessage": str(exc),
+                "stackTrace": traceback.format_exc(),
+                "jobId": job_id,
             },
         )
         raise

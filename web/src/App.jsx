@@ -21,6 +21,7 @@ import FindingsPanel from './components/FindingsPanel.jsx';
 import HumanReviewPanel from './components/HumanReviewPanel.jsx';
 import { IconOverview, IconReview, IconSettings } from './components/icons.jsx';
 import Loader from './components/Loader.jsx';
+import PipelineFailurePanel from './components/PipelineFailurePanel.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
 import UploadHeader from './components/UploadHeader.jsx';
 import { DEFAULT_SETTINGS, mergeSettings } from './defaultSettings.js';
@@ -82,7 +83,9 @@ export default function App() {
   const humanReview = jobStatus?.humanReview || {};
   const findings = jobStatus?.findings ?? [];
   const isBusy =
-    restoringJob || [STEPS.requesting, STEPS.uploading, STEPS.analyzing].includes(step);
+    restoringJob ||
+    ([STEPS.requesting, STEPS.uploading, STEPS.analyzing].includes(step) &&
+      jobStatus?.status !== 'FAILED');
   const showDashboard = step === STEPS.done && uploadResult && jobStatus;
   const activeS3Key = uploadResult?.key || '';
 
@@ -119,6 +122,14 @@ export default function App() {
       return fallback;
     } finally {
       setAwsConfigChecking(false);
+    }
+  }
+
+  function handleJobStatusUpdate(status) {
+    setJobStatus(status);
+    if (status?.status === 'FAILED') {
+      setStep(STEPS.error);
+      setError(status.errorMessage || 'Textract processing failed');
     }
   }
 
@@ -177,7 +188,7 @@ export default function App() {
       setStep(STEPS.analyzing);
       const finalStatus = await pollJobStatus(s3Key, {
         intervalMs: pollIntervalMs,
-        onUpdate: setJobStatus,
+        onUpdate: handleJobStatusUpdate,
         signal: controller.signal,
       });
 
@@ -319,7 +330,7 @@ export default function App() {
       setStep(STEPS.analyzing);
       const finalStatus = await pollJobStatus(uploadData.key, {
         intervalMs: pollIntervalMs,
-        onUpdate: setJobStatus,
+        onUpdate: handleJobStatusUpdate,
         signal: controller.signal,
       });
 
@@ -469,7 +480,7 @@ export default function App() {
             </div>
           )}
 
-          {mainView === 'audit' && step === STEPS.analyzing && (() => {
+          {mainView === 'audit' && step === STEPS.analyzing && jobStatus?.status !== 'FAILED' && (() => {
             const pipeline = getAwsPipelineStatus(jobStatus);
             return (
               <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-950">
@@ -484,7 +495,15 @@ export default function App() {
             );
           })()}
 
-          {mainView === 'audit' && showDashboard && (
+          {mainView === 'audit' && (step === STEPS.error || jobStatus?.status === 'FAILED') && (
+            <PipelineFailurePanel
+              jobStatus={jobStatus}
+              fallbackError={error}
+              onRetry={resetDashboardView}
+            />
+          )}
+
+          {mainView === 'audit' && showDashboard && jobStatus?.status !== 'FAILED' && (
             <>
               <div className="mb-4 flex flex-wrap gap-2 border-b border-slate-200 pb-2">
                 {DASHBOARD_TABS.map((tab) => (
@@ -550,12 +569,6 @@ export default function App() {
             </>
           )}
 
-          {mainView === 'audit' && step === STEPS.error && (
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-900">
-              <h3 className="font-semibold">Audit pipeline failed</h3>
-              <p className="mt-2 text-sm">{error}</p>
-            </div>
-          )}
         </main>
       </div>
     </div>
