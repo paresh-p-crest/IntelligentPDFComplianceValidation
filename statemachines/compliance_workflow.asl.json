@@ -1,0 +1,39 @@
+{
+  "Comment": "CP Crosstown Partners - PDF upload to Textract analysis and compliance validation",
+  "StartAt": "StartTextract",
+  "States": {
+    "StartTextract": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${StartTextractFunctionArn}",
+        "Payload": {
+          "taskToken.$": "$$.Task.Token",
+          "executionArn.$": "$$.Execution.Id",
+          "input.$": "$"
+        }
+      },
+      "ResultPath": "$.textractCompletion",
+      "Next": "ProcessResults",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "WorkflowFailed"
+        }
+      ]
+    },
+    "ProcessResults": {
+      "Type": "Task",
+      "Resource": "${ProcessTextractResultFunctionArn}",
+      "InputPath": "$.textractCompletion",
+      "ResultPath": "$.validationResult",
+      "End": true
+    },
+    "WorkflowFailed": {
+      "Type": "Pass",
+      "Comment": "Textract or callback failure; DynamoDB already updated by callback Lambda",
+      "End": true
+    }
+  }
+}

@@ -1,0 +1,486 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Crosstown Partners (CP) - Intelligent PDF Compliance Validation.
+  Step Functions orchestrates Textract analysis, SNS callback, and compliance validation.
+
+Parameters:
+  ClientPrefix:
+    Type: String
+    Default: cp
+    Description: Crosstown Partners resource prefix (lowercase for S3 compatibility)
+    AllowedPattern: '^[a-z][a-z0-9-]*$'
+    ConstraintDescription: Must start with a letter and use lowercase letters, numbers, or hyphens.
+
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 256
+    Architectures:
+      - x86_64
+
+Resources:
+  ComplianceJobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ClientPrefix}-crosstown-compliance-jobs'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: s3Key
+          AttributeType: S
+        - AttributeName: jobId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: s3Key
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: jobId-index
+          KeySchema:
+            - AttributeName: jobId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  ComplianceSettingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ClientPrefix}-crosstown-compliance-settings'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: configKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: configKey
+          KeyType: HASH
+
+  DocumentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ClientPrefix}-crosstown-pdf-documents-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - PUT
+              - GET
+              - HEAD
+            AllowedOrigins:
+              - '*'
+            ExposedHeaders:
+              - ETag
+            MaxAge: 3000
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+
+  ComplianceApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: !Sub '${ClientPrefix}-crosstown-compliance-api'
+      StageName: prod
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - OPTIONS
+        AllowHeaders:
+          - '*'
+          - Content-Type
+
+  TextractCompletionTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: CP Crosstown Partners Textract Completion
+      TopicName: !Sub '${ClientPrefix}-crosstown-textract-completion'
+
+  TextractServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClientPrefix}-crosstown-textract-service-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: textract.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CpCrosstownTextractSNSPublish
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref TextractCompletionTopic
+
+  StartTextractFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ClientPrefix}-crosstown-start-textract'
+      Description: CP Crosstown Partners - starts Textract analysis on PDF upload.
+      CodeUri: src/
+      Handler: start_extraction.handler
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref TextractCompletionTopic
+          TEXTRACT_ROLE_ARN: !GetAtt TextractServiceRole.Arn
+          JOBS_TABLE_NAME: !Ref ComplianceJobsTable
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref DocumentBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ComplianceJobsTable
+        - Statement:
+            - Sid: StartDocumentAnalysis
+              Effect: Allow
+              Action:
+                - textract:StartDocumentAnalysis
+              Resource: '*'
+            - Sid: PassTextractServiceRole
+              Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource: !GetAtt TextractServiceRole.Arn
+              Condition:
+                StringEquals:
+                  iam:PassedToService: textract.amazonaws.com
+
+  ProcessTextractResultFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ClientPrefix}-crosstown-process-textract'
+      Description: CP Crosstown Partners - parses Textract output and runs compliance rules.
+      CodeUri: src/
+      Handler: process_textract_result.handler
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          JOBS_TABLE_NAME: !Ref ComplianceJobsTable
+          SETTINGS_TABLE_NAME: !Ref ComplianceSettingsTable
+          DOCUMENT_BUCKET_NAME: !Ref DocumentBucket
+          STATE_MACHINE_NAME: !Sub '${ClientPrefix}-crosstown-compliance-workflow'
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ComplianceJobsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ComplianceSettingsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - textract:GetDocumentAnalysis
+              Resource: '*'
+
+  ComplianceStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub '${ClientPrefix}-crosstown-compliance-workflow'
+      Type: STANDARD
+      DefinitionUri: statemachines/compliance_workflow.asl.json
+      DefinitionSubstitutions:
+        StartTextractFunctionArn: !GetAtt StartTextractFunction.Arn
+        ProcessTextractResultFunctionArn: !GetAtt ProcessTextractResultFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref StartTextractFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ProcessTextractResultFunction
+
+  TextractCallbackFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ClientPrefix}-crosstown-textract-callback'
+      Description: CP Crosstown Partners - resumes Step Functions when Textract completes.
+      CodeUri: src/
+      Handler: textract_callback.handler
+      Environment:
+        Variables:
+          JOBS_TABLE_NAME: !Ref ComplianceJobsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ComplianceJobsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - states:SendTaskSuccess
+                - states:SendTaskFailure
+              Resource: '*'
+      Events:
+        TextractComplete:
+          Type: SNS
+          Properties:
+            Topic: !Ref TextractCompletionTopic
+
+  EventBridgeStepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClientPrefix}-crosstown-eventbridge-sfn-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CpCrosstownStartStateMachine
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: states:StartExecution
+                Resource: !GetAtt ComplianceStateMachine.Arn
+
+  PdfUploadEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ClientPrefix}-crosstown-pdf-upload-rule'
+      Description: Starts CP compliance Step Functions workflow when a PDF is uploaded.
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name:
+              - !Ref DocumentBucket
+          object:
+            key:
+              - wildcard: '*.pdf'
+      State: ENABLED
+      Targets:
+        - Id: ComplianceStateMachine
+          Arn: !GetAtt ComplianceStateMachine.Arn
+          RoleArn: !GetAtt EventBridgeStepFunctionsRole.Arn
+
+  GetUploadUrlFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ClientPrefix}-crosstown-get-upload-url'
+      Description: CP Crosstown Partners - presigned S3 upload URL for browser uploads.
+      CodeUri: src/
+      Handler: get_upload_url.handler
+      Environment:
+        Variables:
+          DOCUMENT_BUCKET_NAME: !Ref DocumentBucket
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref DocumentBucket
+      Events:
+        GetUploadUrl:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ComplianceApi
+            Path: /upload-url
+            Method: GET
+
+  GetJobStatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ClientPrefix}-crosstown-get-job-status'
+      Description: CP Crosstown Partners - job status and findings API for browser polling.
+      CodeUri: src/
+      Handler: get_job_status.handler
+      Environment:
+        Variables:
+          JOBS_TABLE_NAME: !Ref ComplianceJobsTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ComplianceJobsTable
+      Events:
+        GetJobStatus:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ComplianceApi
+            Path: /status
+            Method: GET
+
+  SubmitHumanReviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ClientPrefix}-crosstown-submit-review'
+      Description: CP Crosstown Partners - records human review decisions.
+      CodeUri: src/
+      Handler: submit_human_review.handler
+      Environment:
+        Variables:
+          JOBS_TABLE_NAME: !Ref ComplianceJobsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ComplianceJobsTable
+      Events:
+        SubmitReview:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ComplianceApi
+            Path: /review
+            Method: POST
+
+  GetJobHistoryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ClientPrefix}-crosstown-get-job-history'
+      Description: CP Crosstown Partners - returns recent audit history.
+      CodeUri: src/
+      Handler: get_job_history.handler
+      Environment:
+        Variables:
+          JOBS_TABLE_NAME: !Ref ComplianceJobsTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ComplianceJobsTable
+      Events:
+        GetJobHistory:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ComplianceApi
+            Path: /history
+            Method: GET
+
+  DeleteJobHistoryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ClientPrefix}-crosstown-delete-job-history'
+      Description: CP Crosstown Partners - removes a job from audit history.
+      CodeUri: src/
+      Handler: delete_job_history.handler
+      Environment:
+        Variables:
+          JOBS_TABLE_NAME: !Ref ComplianceJobsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ComplianceJobsTable
+      Events:
+        DeleteJobHistory:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ComplianceApi
+            Path: /history
+            Method: DELETE
+
+  GetSettingsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ClientPrefix}-crosstown-get-settings'
+      Description: CP Crosstown Partners - returns compliance rules and app settings.
+      CodeUri: src/
+      Handler: get_settings.handler
+      Environment:
+        Variables:
+          SETTINGS_TABLE_NAME: !Ref ComplianceSettingsTable
+          JOBS_TABLE_NAME: !Ref ComplianceJobsTable
+          DOCUMENT_BUCKET_NAME: !Ref DocumentBucket
+          STATE_MACHINE_NAME: !GetAtt ComplianceStateMachine.Name
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ComplianceSettingsTable
+      Events:
+        GetSettings:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ComplianceApi
+            Path: /settings
+            Method: GET
+
+  UpdateSettingsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ClientPrefix}-crosstown-update-settings'
+      Description: CP Crosstown Partners - saves compliance rules and app settings.
+      CodeUri: src/
+      Handler: update_settings.handler
+      Environment:
+        Variables:
+          SETTINGS_TABLE_NAME: !Ref ComplianceSettingsTable
+          JOBS_TABLE_NAME: !Ref ComplianceJobsTable
+          DOCUMENT_BUCKET_NAME: !Ref DocumentBucket
+          STATE_MACHINE_NAME: !GetAtt ComplianceStateMachine.Name
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ComplianceSettingsTable
+      Events:
+        UpdateSettings:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ComplianceApi
+            Path: /settings
+            Method: PUT
+
+  ValidateAwsConfigFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ClientPrefix}-crosstown-validate-aws-config'
+      Description: CP Crosstown Partners - validates stored AWS credentials via STS.
+      CodeUri: src/
+      Handler: validate_aws_config.handler
+      Environment:
+        Variables:
+          SETTINGS_TABLE_NAME: !Ref ComplianceSettingsTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ComplianceSettingsTable
+      Events:
+        ValidateAwsConfig:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ComplianceApi
+            Path: /settings/aws-config/validate
+            Method: GET
+
+Outputs:
+  DocumentBucketName:
+    Description: CP Crosstown Partners S3 bucket for PDF uploads
+    Value: !Ref DocumentBucket
+    Export:
+      Name: !Sub '${ClientPrefix}-crosstown-DocumentBucketName'
+
+  TextractCompletionTopicArn:
+    Description: CP Crosstown Partners SNS topic for Textract completion
+    Value: !Ref TextractCompletionTopic
+    Export:
+      Name: !Sub '${ClientPrefix}-crosstown-TextractCompletionTopicArn'
+
+  TextractServiceRoleArn:
+    Description: CP Crosstown Partners IAM role for Textract SNS notifications
+    Value: !GetAtt TextractServiceRole.Arn
+    Export:
+      Name: !Sub '${ClientPrefix}-crosstown-TextractServiceRoleArn'
+
+  StartTextractFunctionArn:
+    Description: CP Crosstown Partners Lambda that starts Textract analysis
+    Value: !GetAtt StartTextractFunction.Arn
+    Export:
+      Name: !Sub '${ClientPrefix}-crosstown-StartTextractFunctionArn'
+
+  ComplianceStateMachineArn:
+    Description: CP Crosstown Partners Step Functions workflow ARN
+    Value: !GetAtt ComplianceStateMachine.Arn
+    Export:
+      Name: !Sub '${ClientPrefix}-crosstown-ComplianceStateMachineArn'
+
+  ComplianceStateMachineName:
+    Description: CP Crosstown Partners Step Functions workflow name (console search)
+    Value: !GetAtt ComplianceStateMachine.Name
+    Export:
+      Name: !Sub '${ClientPrefix}-crosstown-ComplianceStateMachineName'
+
+  ApiUrl:
+    Description: CP Crosstown Partners HTTP API base URL for the React upload app
+    Value: !Sub 'https://${ComplianceApi}.execute-api.${AWS::Region}.amazonaws.com/prod'
+    Export:
+      Name: !Sub '${ClientPrefix}-crosstown-ApiUrl'

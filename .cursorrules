@@ -1,0 +1,50 @@
+# Intelligent PDF Compliance Validation — Cursor Rules
+
+## Runtime & Language
+- Use **Python 3.11** for all Lambda functions.
+- Match `Runtime: python3.11` in `template.yaml` Globals and function overrides.
+- Prefer type hints on public functions and handler signatures.
+
+## AWS SAM Best Practices
+- Define infrastructure in `template.yaml` using AWS SAM transforms (`AWS::Serverless-2016-10-31`).
+- Keep Lambda code under `src/` with `Handler` set to `module.function` (e.g. `start_extraction.handler`).
+- Use SAM policy templates (`S3ReadPolicy`, etc.) before writing raw IAM JSON when possible.
+- Wire S3 triggers via SAM `Events` on the function; filter to `.pdf` suffix only.
+- Pass cross-service ARNs through `Environment.Variables`, not hard-coded values.
+- Export stack outputs for downstream Step Functions, parsers, and UI layers.
+- Run `sam build` before `sam deploy`; never commit `.aws-sam/` build artifacts.
+
+## Textract Integration
+- Use `textract:StartDocumentAnalysis` (async) for multi-page PDFs.
+- Enable `FORMS`, `TABLES`, `SIGNATURES`, `LAYOUT`, and `QUERIES` as required features.
+- Configure `NotificationChannel` with `SNSTopicArn` and `RoleArn` from environment variables.
+- Log `JobId` on every successful start for traceability.
+- Textract service role must trust `textract.amazonaws.com` and allow `sns:Publish`.
+- Lambda must have `iam:PassRole` with `iam:PassedToService = textract.amazonaws.com`.
+
+## Code Quality
+- Use structured logging (`logging` module); log context (bucket, key, jobId), not secrets.
+- Validate environment variables at runtime with clear error messages.
+- Guard handlers against malformed events; skip non-PDF keys defensively.
+- Keep handlers thin: orchestration in handler, business logic in testable functions.
+- Use `boto3` with explicit clients; handle `botocore.exceptions.ClientError` at boundaries.
+- No hard-coded account IDs, regions, or ARNs in source code.
+
+## Project Structure
+```
+/
+├── template.yaml          # SAM infrastructure
+├── src/
+│   ├── requirements.txt
+│   └── start_extraction.py
+└── .cursorrules
+```
+
+## Phase 1 Scope (current)
+- S3 upload → Textract async analysis → SNS notification.
+- Do not add pass/fail logic in Bedrock; validation rules belong in a separate rule-engine Lambda (Step 2+).
+
+## Security
+- Block public S3 access on document buckets.
+- Enable bucket encryption (SSE-S3 or KMS).
+- Least-privilege IAM: scope PassRole to the Textract service role only.
