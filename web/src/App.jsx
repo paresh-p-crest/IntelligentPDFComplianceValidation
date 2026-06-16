@@ -72,6 +72,7 @@ export default function App() {
   const [focusAwsConfig, setFocusAwsConfig] = useState(false);
   const abortRef = useRef(null);
   const restoredRef = useRef(false);
+  const submitInFlightRef = useRef(false);
 
   const apiConfigured = Boolean(import.meta.env.VITE_API_URL);
   const pollIntervalMs = appSettings.appConfig?.pollIntervalMs || 5000;
@@ -303,23 +304,24 @@ export default function App() {
 
   async function handleSubmit(event) {
     event.preventDefault();
-    if (!file) return;
-
-    const awsStatus = await checkAwsConfig();
-    if (!awsStatus.valid) {
-      openAwsConfigSettings();
-      return;
-    }
-
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    setError('');
-    setUploadResult(null);
-    setJobStatus(null);
+    if (!file || submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
 
     try {
+      const awsStatus = await checkAwsConfig();
+      if (!awsStatus.valid) {
+        openAwsConfigSettings();
+        return;
+      }
+
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      setError('');
+      setUploadResult(null);
+      setJobStatus(null);
+
       setStep(STEPS.requesting);
       const uploadData = await requestUploadUrl(file.name);
 
@@ -347,6 +349,8 @@ export default function App() {
       if (err.name === 'AbortError') return;
       setStep(STEPS.error);
       setError(err.message || 'Something went wrong');
+    } finally {
+      submitInFlightRef.current = false;
     }
   }
 

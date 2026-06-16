@@ -3,12 +3,21 @@ const LAST_JOB_KEY = 'cp-compliance-last-job';
 const DISMISSED_KEY = 'cp-compliance-dismissed-history';
 const MAX_LOCAL_ITEMS = 25;
 
+function canonicalS3Key(s3Key) {
+  if (!s3Key) return '';
+  try {
+    return decodeURIComponent(String(s3Key));
+  } catch {
+    return String(s3Key);
+  }
+}
+
 export function documentNameFromKey(s3Key) {
   if (!s3Key) return '';
   try {
-    return decodeURIComponent(s3Key.split('/').pop() || '');
+    return decodeURIComponent(canonicalS3Key(s3Key).split('/').pop() || '');
   } catch {
-    return s3Key.split('/').pop() || '';
+    return canonicalS3Key(s3Key).split('/').pop() || '';
   }
 }
 
@@ -26,7 +35,10 @@ function saveDismissedKeys(keys) {
 
 export function filterHistoryItems(items) {
   const dismissed = getDismissedKeys();
-  return items.filter((item) => item?.s3Key && !dismissed.has(item.s3Key));
+  return items.filter((item) => {
+    const key = canonicalS3Key(item?.s3Key);
+    return key && !dismissed.has(key);
+  });
 }
 
 export function getLocalHistory() {
@@ -42,8 +54,11 @@ export function saveLocalHistory(items) {
 }
 
 export function upsertHistoryItem(item) {
-  const existing = getLocalHistory().filter((entry) => entry.s3Key !== item.s3Key);
-  const next = [item, ...existing].slice(0, MAX_LOCAL_ITEMS);
+  const key = canonicalS3Key(item?.s3Key);
+  if (!key) return getLocalHistory();
+  const nextItem = { ...item, s3Key: key };
+  const existing = getLocalHistory().filter((entry) => canonicalS3Key(entry.s3Key) !== key);
+  const next = [nextItem, ...existing].slice(0, MAX_LOCAL_ITEMS);
   saveLocalHistory(next);
   return next;
 }
@@ -52,10 +67,11 @@ export function mergeHistoryItems(apiItems, localItems) {
   const map = new Map();
 
   [...localItems, ...apiItems].forEach((item) => {
-    if (!item?.s3Key) return;
-    const previous = map.get(item.s3Key);
+    const key = canonicalS3Key(item?.s3Key);
+    if (!key) return;
+    const previous = map.get(key);
     if (!previous || (item.updatedAt || '') > (previous.updatedAt || '')) {
-      map.set(item.s3Key, item);
+      map.set(key, { ...item, s3Key: key });
     }
   });
 
@@ -67,15 +83,16 @@ export function mergeHistoryItems(apiItems, localItems) {
 }
 
 export function dismissHistoryItem(s3Key) {
+  const key = canonicalS3Key(s3Key);
   const dismissed = getDismissedKeys();
-  dismissed.add(s3Key);
+  dismissed.add(key);
   saveDismissedKeys(dismissed);
 
   const next = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]').filter(
-    (item) => item.s3Key !== s3Key,
+    (item) => canonicalS3Key(item.s3Key) !== key,
   );
   saveLocalHistory(next);
-  clearLastViewedJobIfMatches(s3Key);
+  clearLastViewedJobIfMatches(key);
   return getLocalHistory();
 }
 
@@ -97,15 +114,16 @@ export function clearLastViewedJob() {
 
 export function clearLastViewedJobIfMatches(s3Key) {
   const last = getLastViewedJob();
-  if (last?.s3Key === s3Key) {
+  if (canonicalS3Key(last?.s3Key) === canonicalS3Key(s3Key)) {
     clearLastViewedJob();
   }
 }
 
 export function saveLastViewedJob(s3Key, documentName) {
+  const key = canonicalS3Key(s3Key);
   localStorage.setItem(
     LAST_JOB_KEY,
-    JSON.stringify({ s3Key, documentName: documentName || documentNameFromKey(s3Key) }),
+    JSON.stringify({ s3Key: key, documentName: documentName || documentNameFromKey(key) }),
   );
 }
 
@@ -118,9 +136,10 @@ export function getLastViewedJob() {
 }
 
 export function historyItemFromStatus(status, documentName) {
+  const key = canonicalS3Key(status.s3Key);
   return {
-    s3Key: status.s3Key,
-    documentName: documentName || status.documentName || documentNameFromKey(status.s3Key),
+    s3Key: key,
+    documentName: documentName || status.documentName || documentNameFromKey(key),
     status: status.status,
     findingCount: status.findingCount ?? 0,
     pageCount: status.pageCount ?? 0,
