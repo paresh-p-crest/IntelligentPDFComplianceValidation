@@ -20,13 +20,15 @@ export default function UploadHeader({
   sampleLoading = false,
   onFileChange,
   onLoadSample,
+  onNewAudit,
   onSubmit,
   onDownload,
   onGoToReview,
   onOpenSettings,
   onOpenAudit,
   onOpenAwsConfig,
-}) {  return (
+}) {
+  return (
     <div className="relative mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
       <div className="absolute right-3 top-3 flex items-center gap-1">
         {!settingsActive && (
@@ -89,6 +91,14 @@ export default function UploadHeader({
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
+              onClick={onNewAudit}
+              className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 transition hover:bg-indigo-100"
+            >
+              <IconUpload className="h-4 w-4" />
+              New audit
+            </button>
+            <button
+              type="button"
               onClick={onDownload}
               className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500"
             >
@@ -124,31 +134,32 @@ export default function UploadHeader({
       {!settingsActive && (
         <form onSubmit={onSubmit} className={showDashboard ? 'mt-2 border-t border-slate-100 pt-2' : 'mt-3'}>
           {!showDashboard && (
-            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-medium text-slate-600">Choose PDF</span>
-              <button
-                type="button"
-                onClick={onLoadSample}
-                disabled={isBusy || sampleLoading}
-                className="text-xs font-semibold text-indigo-700 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {sampleLoading ? 'Loading sample…' : 'Use sample DQR'}
-              </button>
-            </div>
+            <p className="mb-2 text-sm text-slate-600">
+              Upload a Daily Quality Report PDF, or use the bundled sample to try the audit flow.
+            </p>
           )}
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-2">
             <input
               type="file"
               accept="application/pdf,.pdf"
               onChange={onFileChange}
               disabled={isBusy}
-              className="h-9 w-full min-w-0 flex-1 rounded-lg border border-slate-300 bg-slate-50 px-2 text-xs file:mr-3 file:h-full file:rounded-md file:border-0 file:bg-indigo-600 file:px-3 file:text-xs file:font-semibold file:text-white sm:max-w-xl"
+              className="h-10 w-full min-w-0 flex-1 rounded-lg border border-slate-300 bg-slate-50 px-2 text-sm file:mr-3 file:h-full file:rounded-md file:border-0 file:bg-indigo-600 file:px-4 file:text-sm file:font-semibold file:text-white lg:max-w-md"
             />
+            <button
+              type="button"
+              onClick={onLoadSample}
+              disabled={isBusy || sampleLoading}
+              className="inline-flex h-10 w-full flex-shrink-0 items-center justify-center rounded-lg border-2 border-indigo-300 bg-indigo-50 px-4 text-sm font-bold text-indigo-800 shadow-sm transition hover:border-indigo-400 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 lg:w-auto"
+            >
+              {sampleLoading ? 'Loading sample…' : 'Sample DQR'}
+            </button>
             <button
               type="submit"
               disabled={!file || isBusy || !apiConfigured || uploadBlocked || awsConfigChecking}
-              className="inline-flex h-9 w-full flex-shrink-0 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-            >              {isBusy ? (
+              className="inline-flex h-10 w-full flex-shrink-0 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 lg:w-auto"
+            >
+              {isBusy ? (
                 <Loader
                   className="text-white"
                   label={getBusyButtonLabel(step, jobStatus)}
@@ -170,11 +181,12 @@ export default function UploadHeader({
         </p>
       )}
 
-      {file && !showDashboard && !settingsActive && (
-        <p className="mt-2 text-xs text-slate-500">
-          {file.name} · {Math.round(file.size / 1024)} KB
+      {file && !settingsActive && (
+        <p className="mt-2 text-sm text-slate-600">
+          <span className="font-medium text-slate-800">{file.name}</span>
+          <span className="text-slate-500"> · {Math.round(file.size / 1024)} KB</span>
           {file.name === SAMPLE_DOCUMENT_LABEL && (
-            <span className="ml-2 text-indigo-600">· Sample document ready to analyze</span>
+            <span className="ml-2 font-semibold text-indigo-700">Sample ready — click Upload & Analyze</span>
           )}
         </p>
       )}
