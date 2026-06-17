@@ -73,6 +73,7 @@ export default function App() {
   const [focusAwsConfig, setFocusAwsConfig] = useState(false);
   const [sampleLoading, setSampleLoading] = useState(false);
   const abortRef = useRef(null);
+  const restoredRef = useRef(false);
   const submitInFlightRef = useRef(false);
 
   const apiConfigured = Boolean(import.meta.env.VITE_API_URL);
@@ -237,6 +238,13 @@ export default function App() {
       }
 
       await refreshHistoryFromApi();
+      if (cancelled || restoredRef.current) return;
+
+      const last = getLastViewedJob();
+      if (last?.s3Key) {
+        restoredRef.current = true;
+        await restoreJob(last.s3Key, last.documentName);
+      }
     }
 
     bootstrap();

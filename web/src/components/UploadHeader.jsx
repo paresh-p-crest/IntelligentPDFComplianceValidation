@@ -138,31 +138,29 @@ export default function UploadHeader({
               Upload a Daily Quality Report PDF, or use the bundled sample to try the audit flow.
             </p>
           )}
-          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
-            <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
-              <input
-                type="file"
-                accept="application/pdf,.pdf"
-                onChange={onFileChange}
-                disabled={isBusy}
-                className="h-10 w-full min-w-0 flex-1 rounded-lg border border-slate-300 bg-slate-50 px-2 text-sm file:mr-3 file:h-full file:rounded-md file:border-0 file:bg-indigo-600 file:px-4 file:text-sm file:font-semibold file:text-white sm:max-w-md"
-              />
-              <span className="shrink-0 text-center text-xs font-bold uppercase tracking-wide text-slate-500 sm:px-1">
-                OR
-              </span>
-              <button
-                type="button"
-                onClick={onLoadSample}
-                disabled={isBusy || sampleLoading}
-                className="inline-flex h-10 w-full flex-shrink-0 items-center justify-center rounded-lg border-2 border-indigo-300 bg-indigo-50 px-4 text-sm font-bold text-indigo-800 shadow-sm transition hover:border-indigo-400 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:whitespace-nowrap"
-              >
-                {sampleLoading ? 'Loading sample…' : 'Use Sample DQR PDF'}
-              </button>
-            </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
+            <input
+              type="file"
+              accept="application/pdf,.pdf"
+              onChange={onFileChange}
+              disabled={isBusy}
+              className="h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-slate-50 px-2 text-sm file:mr-3 file:h-full file:rounded-md file:border-0 file:bg-indigo-600 file:px-4 file:text-sm file:font-semibold file:text-white sm:max-w-md sm:flex-1"
+            />
+            <span className="shrink-0 text-center text-xs font-bold uppercase tracking-wide text-slate-500 sm:px-1">
+              OR
+            </span>
+            <button
+              type="button"
+              onClick={onLoadSample}
+              disabled={isBusy || sampleLoading}
+              className="inline-flex h-10 w-full flex-shrink-0 items-center justify-center rounded-lg border-2 border-indigo-300 bg-indigo-50 px-4 text-sm font-bold text-indigo-800 shadow-sm transition hover:border-indigo-400 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:whitespace-nowrap"
+            >
+              {sampleLoading ? 'Loading sample…' : 'Use Sample DQR PDF'}
+            </button>
             <button
               type="submit"
               disabled={!file || isBusy || !apiConfigured || uploadBlocked || awsConfigChecking}
-              className="inline-flex h-10 w-full flex-shrink-0 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 lg:w-auto"
+              className="inline-flex h-10 w-full flex-shrink-0 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 sm:ml-4 sm:w-auto"
             >
               {isBusy ? (
                 <Loader
