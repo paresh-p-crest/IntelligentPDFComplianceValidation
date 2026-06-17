@@ -26,6 +26,15 @@ export default function UploadHeader({
 }) {  return (
     <div className="relative mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
       <div className="absolute right-3 top-3 flex items-center gap-1">
+        {!settingsActive && (
+          <a
+            href="/documentation"
+            className="hidden rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 sm:inline-flex"
+            title="Platform documentation"
+          >
+            Docs
+          </a>
+        )}
         {settingsActive ? (
           <button
             type="button"
