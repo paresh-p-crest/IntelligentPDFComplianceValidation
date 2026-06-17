@@ -46,6 +46,7 @@ import {
   getBusyButtonLabel,
   PIPELINE_STEPS,
 } from './pipelineStatus.js';
+import { loadSampleDocument } from './sampleDocument.js';
 
 const STEPS = PIPELINE_STEPS;
 
@@ -70,6 +71,7 @@ export default function App() {
   const [awsConfigStatus, setAwsConfigStatus] = useState(null);
   const [awsConfigChecking, setAwsConfigChecking] = useState(false);
   const [focusAwsConfig, setFocusAwsConfig] = useState(false);
+  const [sampleLoading, setSampleLoading] = useState(false);
   const abortRef = useRef(null);
   const restoredRef = useRef(false);
   const submitInFlightRef = useRef(false);
@@ -368,6 +370,30 @@ export default function App() {
     setRestoringJob(false);
   }
 
+  async function handleLoadSample() {
+    if (sampleLoading || isBusy) return;
+
+    abortRef.current?.abort();
+    setSampleLoading(true);
+    setError('');
+
+    try {
+      const sampleFile = await loadSampleDocument();
+      setFile(sampleFile);
+      setStep(STEPS.idle);
+      setUploadResult(null);
+      setJobStatus(null);
+      setActiveTab('overview');
+      setFindingFilter('ALL');
+      setMainView('audit');
+      setRestoringJob(false);
+    } catch (err) {
+      setError(err.message || 'Could not load sample document');
+    } finally {
+      setSampleLoading(false);
+    }
+  }
+
   const overallStatus = summary.overallStatus || 'IN_PROGRESS';
   const statusLabel =
     overallStatus === 'VALIDATED'
@@ -443,7 +469,9 @@ export default function App() {
               awsConfigStatus={awsConfigStatus}
               awsConfigChecking={awsConfigChecking}
               uploadBlocked={uploadBlocked}
+              sampleLoading={sampleLoading}
               onFileChange={handleFileChange}
+              onLoadSample={handleLoadSample}
               onSubmit={handleSubmit}
               onDownload={() =>
                 downloadAuditReport({

@@ -1,5 +1,6 @@
 import Loader from './Loader.jsx';
 import { getBusyButtonLabel } from '../pipelineStatus.js';
+import { SAMPLE_DOCUMENT_LABEL } from '../sampleDocument.js';
 import AwsConfigAlert from './AwsConfigAlert.jsx';
 import { IconDownload, IconFile, IconReview, IconSettings, IconUpload } from './icons.jsx';
 
@@ -16,7 +17,9 @@ export default function UploadHeader({
   awsConfigStatus = null,
   awsConfigChecking = false,
   uploadBlocked = false,
+  sampleLoading = false,
   onFileChange,
+  onLoadSample,
   onSubmit,
   onDownload,
   onGoToReview,
@@ -118,9 +121,20 @@ export default function UploadHeader({
         />
       )}
 
-      {!settingsActive && (        <form onSubmit={onSubmit} className={showDashboard ? 'mt-2 border-t border-slate-100 pt-2' : 'mt-3'}>
+      {!settingsActive && (
+        <form onSubmit={onSubmit} className={showDashboard ? 'mt-2 border-t border-slate-100 pt-2' : 'mt-3'}>
           {!showDashboard && (
-            <span className="mb-1.5 block text-xs font-medium text-slate-600">Choose PDF</span>
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-medium text-slate-600">Choose PDF</span>
+              <button
+                type="button"
+                onClick={onLoadSample}
+                disabled={isBusy || sampleLoading}
+                className="text-xs font-semibold text-indigo-700 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sampleLoading ? 'Loading sample…' : 'Use sample DQR'}
+              </button>
+            </div>
           )}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
             <input
@@ -159,6 +173,9 @@ export default function UploadHeader({
       {file && !showDashboard && !settingsActive && (
         <p className="mt-2 text-xs text-slate-500">
           {file.name} · {Math.round(file.size / 1024)} KB
+          {file.name === SAMPLE_DOCUMENT_LABEL && (
+            <span className="ml-2 text-indigo-600">· Sample document ready to analyze</span>
+          )}
         </p>
       )}
     </div>

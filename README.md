@@ -141,6 +141,10 @@ sam deploy
 
 Note the **ApiUrl** output from the stack—that is your API base URL.
 
+### Try without your own PDF
+
+On the live dashboard, click **Use sample DQR** to load the bundled reference document (`DQR-TCE-20260104-sample.pdf`, 51-page DQR) and run **Upload & Analyze** immediately.
+
 ### Run frontend locally
 
 ```powershell
