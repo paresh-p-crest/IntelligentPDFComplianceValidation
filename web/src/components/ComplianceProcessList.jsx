@@ -26,6 +26,8 @@ export default function ComplianceProcessList({
   auditComplete = false,
   findings = [],
   rules = [],
+  embedded = false,
+  onViewRules,
 }) {
   const workflowRules = rules.filter((rule) => rule.category !== 'WORKFLOW' || rule.enabled);
   const items = (rules.length ? rules : workflowRules).map((rule, index) => {
@@ -57,15 +59,32 @@ export default function ComplianceProcessList({
   }));
 
   return (
-    <section className="mt-8">
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-300">
-        Active Compliance Checks
-      </p>
-      <p className="mt-2 text-xs text-slate-500">
-        Rules applied automatically during each audit run.
-      </p>
-      <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-        <ProcessTimeline items={items} variant="dark" />
+    <section className={embedded ? '' : 'mt-8'}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cp-lime">
+            Active Compliance Checks
+          </p>
+          <p className={`mt-2 text-xs ${embedded ? 'text-slate-400' : 'text-slate-500'}`}>
+            Rules applied automatically during each audit run.
+          </p>
+        </div>
+        {onViewRules && (
+          <button
+            type="button"
+            onClick={onViewRules}
+            className="shrink-0 text-xs font-semibold text-cp-lime hover:text-lime-300"
+          >
+            Edit rules
+          </button>
+        )}
+      </div>
+      <div
+        className={`mt-4 rounded-xl border p-4 ${
+          embedded ? 'border-slate-700 bg-slate-800/60' : 'border-slate-800 bg-slate-900/40'
+        }`}
+      >
+        <ProcessTimeline items={items} variant={embedded ? 'dark' : 'dark'} />
       </div>
     </section>
   );

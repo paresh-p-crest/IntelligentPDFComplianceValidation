@@ -10,7 +10,7 @@ export default function ProcessTimeline({ items, variant = 'light' }) {
               item.done
                 ? 'bg-emerald-500 text-white'
                 : item.current
-                  ? 'bg-indigo-600 text-white'
+                  ? 'bg-cp-lime text-slate-900'
                   : isDark
                     ? 'border border-slate-600 bg-slate-800 text-slate-500'
                     : 'border border-slate-300 bg-white text-slate-400'

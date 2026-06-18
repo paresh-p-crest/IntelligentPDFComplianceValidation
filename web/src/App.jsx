@@ -13,27 +13,14 @@ import {
   buildLocalAwsConfigStatus,
   isAwsConfigPresent,
 } from './awsConfigUtils.js';
-import AuditCharts from './components/AuditCharts.jsx';
-import AuditHistory from './components/AuditHistory.jsx';
-import CompactOverview from './components/CompactOverview.jsx';
-import ComplianceProcessList from './components/ComplianceProcessList.jsx';
-import FindingsPanel from './components/FindingsPanel.jsx';
-import HumanReviewPanel from './components/HumanReviewPanel.jsx';
-import { IconOverview, IconReview, IconSettings } from './components/icons.jsx';
-import Loader from './components/Loader.jsx';
-import PipelineFailurePanel from './components/PipelineFailurePanel.jsx';
+import AppShell from './components/layout/AppShell.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
-import UploadHeader from './components/UploadHeader.jsx';
 import { DEFAULT_SETTINGS, mergeSettings } from './defaultSettings.js';
-import {
-  downloadAuditReport,
-  getOverallStatusStyle,
-} from './dashboardUtils.js';
+import { downloadAuditReport, getOverallStatusStyle } from './dashboardUtils.js';
 import {
   clearAllHistory,
   dismissHistoryItem,
   documentNameFromKey,
-  getLastViewedJob,
   getLocalHistory,
   historyItemFromStatus,
   mergeHistoryItems,
@@ -41,19 +28,15 @@ import {
   saveLocalHistory,
   upsertHistoryItem,
 } from './historyStorage.js';
-import {
-  getAwsPipelineStatus,
-  getBusyButtonLabel,
-  PIPELINE_STEPS,
-} from './pipelineStatus.js';
+import { PIPELINE_STEPS } from './pipelineStatus.js';
 import { loadSampleDocument } from './sampleDocument.js';
+import DocumentsPage from './pages/DocumentsPage.jsx';
+import HomeDashboard from './pages/HomeDashboard.jsx';
+import ReviewPage from './pages/ReviewPage.jsx';
+import UploadPage from './pages/UploadPage.jsx';
+import ValidationPage from './pages/ValidationPage.jsx';
 
 const STEPS = PIPELINE_STEPS;
-
-const DASHBOARD_TABS = [
-  { id: 'overview', label: 'Overview', Icon: IconOverview },
-  { id: 'review', label: 'Human Review', Icon: IconReview },
-];
 
 export default function App() {
   const [file, setFile] = useState(null);
@@ -61,8 +44,7 @@ export default function App() {
   const [uploadResult, setUploadResult] = useState(null);
   const [jobStatus, setJobStatus] = useState(null);
   const [error, setError] = useState('');
-  const [mainView, setMainView] = useState('audit');
-  const [activeTab, setActiveTab] = useState('overview');
+  const [mainView, setMainView] = useState('dashboard');
   const [findingFilter, setFindingFilter] = useState('ALL');
   const [historyItems, setHistoryItems] = useState(() => getLocalHistory());
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -73,7 +55,6 @@ export default function App() {
   const [focusAwsConfig, setFocusAwsConfig] = useState(false);
   const [sampleLoading, setSampleLoading] = useState(false);
   const abortRef = useRef(null);
-  const restoredRef = useRef(false);
   const submitInFlightRef = useRef(false);
 
   const apiConfigured = Boolean(import.meta.env.VITE_API_URL);
@@ -91,6 +72,13 @@ export default function App() {
       jobStatus?.status !== 'FAILED');
   const showDashboard = step === STEPS.done && uploadResult && jobStatus;
   const activeS3Key = uploadResult?.key || '';
+
+  function navigate(sectionId) {
+    setMainView(sectionId);
+    if (sectionId !== 'settings') {
+      setFocusAwsConfig(false);
+    }
+  }
 
   function openAwsConfigSettings() {
     setFocusAwsConfig(true);
@@ -160,7 +148,7 @@ export default function App() {
     }
   }
 
-  async function restoreJob(s3Key, documentName) {
+  async function restoreJob(s3Key, documentName, { navigateTo = 'audit' } = {}) {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -170,9 +158,8 @@ export default function App() {
     setRestoringJob(true);
     setUploadResult({ key: s3Key });
     setFile({ name: resolvedName });
-    setActiveTab('overview');
     setFindingFilter('ALL');
-    setMainView('audit');
+    setMainView(navigateTo);
 
     try {
       const status = await fetchJobStatus(s3Key);
@@ -238,13 +225,6 @@ export default function App() {
       }
 
       await refreshHistoryFromApi();
-      if (cancelled || restoredRef.current) return;
-
-      const last = getLastViewedJob();
-      if (last?.s3Key) {
-        restoredRef.current = true;
-        await restoreJob(last.s3Key, last.documentName);
-      }
     }
 
     bootstrap();
@@ -255,7 +235,7 @@ export default function App() {
   }, [apiConfigured]);
 
   async function handleHistorySelect(item) {
-    await restoreJob(item.s3Key, item.documentName);
+    await restoreJob(item.s3Key, item.documentName, { navigateTo: 'audit' });
   }
 
   function resetDashboardView() {
@@ -265,9 +245,8 @@ export default function App() {
     setJobStatus(null);
     setFile(null);
     setError('');
-    setActiveTab('overview');
     setFindingFilter('ALL');
-    setMainView('audit');
+    setMainView('upload');
     setRestoringJob(false);
   }
 
@@ -323,6 +302,7 @@ export default function App() {
       setError('');
       setUploadResult(null);
       setJobStatus(null);
+      setMainView('upload');
 
       setStep(STEPS.requesting);
       const uploadData = await requestUploadUrl(file.name);
@@ -332,6 +312,7 @@ export default function App() {
       setUploadResult(uploadData);
 
       setStep(STEPS.analyzing);
+      setMainView('audit');
       const finalStatus = await pollJobStatus(uploadData.key, {
         intervalMs: pollIntervalMs,
         onUpdate: handleJobStatusUpdate,
@@ -345,6 +326,7 @@ export default function App() {
       if (finalStatus.status === 'FAILED') {
         setError(finalStatus.errorMessage || 'Textract processing failed');
       } else {
+        setMainView('audit');
         refreshHistoryFromApi();
       }
     } catch (err) {
@@ -364,9 +346,8 @@ export default function App() {
     setUploadResult(null);
     setJobStatus(null);
     setError('');
-    setActiveTab('overview');
     setFindingFilter('ALL');
-    setMainView('audit');
+    setMainView('upload');
     setRestoringJob(false);
   }
 
@@ -383,9 +364,8 @@ export default function App() {
       setStep(STEPS.idle);
       setUploadResult(null);
       setJobStatus(null);
-      setActiveTab('overview');
       setFindingFilter('ALL');
-      setMainView('audit');
+      setMainView('upload');
       setRestoringJob(false);
     } catch (err) {
       setError(err.message || 'Could not load sample document');
@@ -410,200 +390,139 @@ export default function App() {
                 ? 'Corrected'
                 : 'Processing';
 
-  return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="flex min-h-screen">
-        <aside className="hidden w-72 flex-shrink-0 border-r border-slate-200 bg-slate-950 px-6 py-8 text-white lg:block">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-indigo-300">
-            Crosstown Partners
-          </p>
-          <h1 className="mt-3 text-2xl font-bold">Compliance Audit</h1>
-          <p className="mt-3 text-sm text-slate-400">
-            Intelligent PDF validation for Daily Quality Reports using AWS Textract and
-            deterministic rule checks.
-          </p>
-          <ComplianceProcessList
-            pipelineActive={step === STEPS.analyzing}
-            auditComplete={showDashboard}
-            findings={findings}
-            rules={appSettings.rules.filter((rule) => rule.enabled !== false)}
-          />
+  function handleReviewSubmitted(result) {
+    setJobStatus((current) => {
+      const next = {
+        ...current,
+        humanReview: result.humanReview,
+        validationSummary: result.validationSummary,
+      };
+      rememberJob(next, file?.name);
+      refreshHistoryFromApi();
+      return next;
+    });
+  }
 
-          <div className="mt-8 border-t border-slate-800 pt-6">
-            <button
-              type="button"
-              onClick={() => setMainView('settings')}
-              className={`flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
-                mainView === 'settings'
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-              }`}
-            >
-              <IconSettings className="h-4 w-4" />
-              Settings
-            </button>
-          </div>
-
-          <AuditHistory
-            items={historyItems}
+  function renderSection() {
+    switch (mainView) {
+      case 'dashboard':
+        return (
+          <HomeDashboard
+            historyItems={historyItems}
+            historyLoading={historyLoading}
             activeS3Key={activeS3Key}
-            loading={historyLoading}
-            onSelect={handleHistorySelect}
-            onDelete={(item) => handleDeleteHistory(item)}
+            onSelectDocument={handleHistorySelect}
+            onViewAllDocuments={() => navigate('documents')}
+            onGoToUpload={() => navigate('upload')}
+          />
+        );
+
+      case 'upload':
+        return (
+          <UploadPage
+            file={file}
+            showDashboard={showDashboard}
+            statusLabel={statusLabel}
+            overallStatusStyle={getOverallStatusStyle(overallStatus)}
+            apiConfigured={apiConfigured}
+            isBusy={isBusy}
+            step={step}
+            jobStatus={jobStatus}
+            error={error}
+            awsConfigStatus={awsConfigStatus}
+            awsConfigChecking={awsConfigChecking}
+            uploadBlocked={uploadBlocked}
+            sampleLoading={sampleLoading}
+            restoringJob={restoringJob}
+            appSettings={appSettings}
+            findings={findings}
+            onFileChange={handleFileChange}
+            onLoadSample={handleLoadSample}
+            onSubmit={handleSubmit}
+            onOpenAwsConfig={openAwsConfigSettings}
+            onViewRules={() => navigate('settings')}
+            onRetry={resetDashboardView}
+          />
+        );
+
+      case 'documents':
+        return (
+          <DocumentsPage
+            historyItems={historyItems}
+            historyLoading={historyLoading}
+            activeS3Key={activeS3Key}
+            onSelectDocument={handleHistorySelect}
+            onDeleteDocument={handleDeleteHistory}
             onClearAll={handleClearHistory}
           />
-        </aside>
+        );
 
-        <main className="flex-1 px-4 py-4 md:px-8">
-          <div className="relative">
-            <UploadHeader
-              file={file}
-              showDashboard={showDashboard}
-              statusLabel={statusLabel}
-              overallStatusStyle={getOverallStatusStyle(overallStatus)}
-              apiConfigured={apiConfigured}
-              isBusy={isBusy}
-              step={step}
-              jobStatus={jobStatus}
-              settingsActive={mainView === 'settings'}
-              awsConfigStatus={awsConfigStatus}
-              awsConfigChecking={awsConfigChecking}
-              uploadBlocked={uploadBlocked}
-              sampleLoading={sampleLoading}
-              onFileChange={handleFileChange}
-              onLoadSample={handleLoadSample}
-              onNewAudit={resetDashboardView}
-              onSubmit={handleSubmit}
-              onDownload={() =>
-                downloadAuditReport({
-                  fileName: file.name,
-                  jobStatus,
-                  uploadResult,
-                })
-              }
-              onGoToReview={() => {
-                setMainView('audit');
-                setActiveTab('review');
-              }}
-              onOpenSettings={() => setMainView('settings')}
-              onOpenAudit={() => {
-                setFocusAwsConfig(false);
-                setMainView('audit');
-              }}
-              onOpenAwsConfig={openAwsConfigSettings}
-            />
-          </div>
+      case 'audit':
+        return (
+          <ValidationPage
+            file={file}
+            jobStatus={jobStatus}
+            summary={summary}
+            metadata={metadata}
+            humanReview={humanReview}
+            findings={findings}
+            findingFilter={findingFilter}
+            step={step}
+            statusLabel={statusLabel}
+            showDashboard={showDashboard}
+            restoringJob={restoringJob}
+            error={error}
+            onFilterChange={setFindingFilter}
+            onDownload={() =>
+              downloadAuditReport({
+                fileName: file.name,
+                jobStatus,
+                uploadResult,
+              })
+            }
+            onGoToUpload={() => navigate('upload')}
+            onGoToDocuments={() => navigate('documents')}
+            onGoToApprovals={() => navigate('approvals')}
+            onRetry={resetDashboardView}
+          />
+        );
 
-          {mainView === 'settings' && (
-            <SettingsPanel
-              focusAwsConfig={focusAwsConfig}
-              onFocusAwsConfigHandled={() => setFocusAwsConfig(false)}
-              onSettingsSaved={(saved) => {
-                const merged = mergeSettings(saved);
-                setAppSettings(merged);
-                checkAwsConfig(merged.awsConfig);
-              }}
-              onAwsConfigValidated={setAwsConfigStatus}
-            />
-          )}
+      case 'approvals':
+        return (
+          <ReviewPage
+            showDashboard={showDashboard}
+            uploadResult={uploadResult}
+            humanReview={humanReview}
+            summary={summary}
+            file={file}
+            onReviewSubmitted={handleReviewSubmitted}
+            onGoToDocuments={() => navigate('documents')}
+            onGoToUpload={() => navigate('upload')}
+          />
+        );
 
-          {mainView === 'audit' && restoringJob && step !== STEPS.analyzing && (
-            <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <Loader label="Restoring saved audit..." />
-            </div>
-          )}
+      case 'settings':
+        return (
+          <SettingsPanel
+            focusAwsConfig={focusAwsConfig}
+            onFocusAwsConfigHandled={() => setFocusAwsConfig(false)}
+            onSettingsSaved={(saved) => {
+              const merged = mergeSettings(saved);
+              setAppSettings(merged);
+              checkAwsConfig(merged.awsConfig);
+            }}
+            onAwsConfigValidated={setAwsConfigStatus}
+          />
+        );
 
-          {mainView === 'audit' && step === STEPS.analyzing && jobStatus?.status !== 'FAILED' && (() => {
-            const pipeline = getAwsPipelineStatus(jobStatus);
-            return (
-              <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-950">
-                <Loader label={pipeline.title} />
-                <p className="mt-2 text-xs text-indigo-900">{pipeline.detail}</p>
-                {jobStatus?.jobId && (
-                  <p className="mt-1 text-[11px] text-indigo-700">
-                    Textract job {jobStatus.jobId.slice(0, 12)}...
-                  </p>
-                )}
-              </div>
-            );
-          })()}
+      default:
+        return null;
+    }
+  }
 
-          {mainView === 'audit' && (step === STEPS.error || jobStatus?.status === 'FAILED') && (
-            <PipelineFailurePanel
-              jobStatus={jobStatus}
-              fallbackError={error}
-              onRetry={resetDashboardView}
-            />
-          )}
-
-          {mainView === 'audit' && showDashboard && jobStatus?.status !== 'FAILED' && (
-            <>
-              <div className="mb-4 flex flex-wrap gap-2 border-b border-slate-200 pb-2">
-                {DASHBOARD_TABS.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`inline-flex items-center gap-2 rounded-t-lg px-4 py-2 text-sm font-semibold ${
-                      activeTab === tab.id
-                        ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-slate-200'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    <tab.Icon className="h-4 w-4" />
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              {activeTab === 'overview' && (
-                <>
-                  <AuditCharts
-                    findings={findings}
-                    summary={summary}
-                    pageCount={jobStatus.pageCount}
-                  />
-
-                  <CompactOverview
-                    summary={summary}
-                    metadata={metadata}
-                    step={step}
-                    humanReview={humanReview}
-                  />
-
-                  <FindingsPanel
-                    findings={findings}
-                    reviewStatus={humanReview.status || summary.humanReviewStatus}
-                    activeFilter={findingFilter}
-                    onFilterChange={setFindingFilter}
-                  />
-                </>
-              )}
-
-              {activeTab === 'review' && (
-                <HumanReviewPanel
-                  s3Key={uploadResult.key}
-                  humanReview={humanReview}
-                  validationSummary={summary}
-                  onReviewSubmitted={(result) => {
-                    setJobStatus((current) => {
-                      const next = {
-                        ...current,
-                        humanReview: result.humanReview,
-                        validationSummary: result.validationSummary,
-                      };
-                      rememberJob(next, file?.name);
-                      refreshHistoryFromApi();
-                      return next;
-                    });
-                  }}
-                />
-              )}
-            </>
-          )}
-
-        </main>
-      </div>
-    </div>
+  return (
+    <AppShell activeSection={mainView} onNavigate={navigate} apiConfigured={apiConfigured}>
+      {renderSection()}
+    </AppShell>
   );
 }
